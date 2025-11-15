@@ -68,4 +68,4 @@ GENERIC_TCP_LISTEN_PORT = 9000
 
 
 # --- SİSTEM VE SERVİS AYARLARI ---
-DEFAULT_LOG_FILE = "/var/log/ddos-preventer.log"
+DEFAULT_LOG_FILE = "/home/log/ddos-preventer.log"

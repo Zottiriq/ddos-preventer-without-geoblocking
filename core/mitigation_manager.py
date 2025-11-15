@@ -1,16 +1,34 @@
 # core/mitigation_manager.py
+import subprocess
+import re
+import ipaddress
 import asyncio
 import time
 import logging
 from collections import deque
 from pathlib import Path
-
+import os
 import config
 from . import ipset_manager
 
 logger = logging.getLogger("ddos-preventer")
 
 WHITELIST_FILE = "/etc/ddos_preventer/whitelist.txt"
+
+path = Path(WHITELIST_FILE)
+if not path.exists():
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(
+            "# ddos-preventer whitelist\n"
+            "# one IP or CIDR per line\n"
+            "# örnekler:\n"
+            "# 192.168.1.10\n"
+            "# 10.0.0.0/24\n"
+            "# 2001:db8::/32\n"
+        )
+    os.chmod(path, 0o644)
+    logger.info(f"Whitelist dosyası oluşturuldu: {path}")
 
 class TokenBucket:
     """Her bir IP-Port çifti için hız limitini uygular."""
@@ -33,6 +51,72 @@ class MitigationManager:
     """Tüm gelen bağlantılar için merkezi DDoS azaltma yöneticisi."""
     _instance = None
 
+    def _append_internal_ifaces_to_whitelist_file(self, skip_iface_regex=r'\beth[0-9]\b'):
+        """
+        eth0..eth9 arayüzlerini atla. Diğer arayüzlerin network CIDR'lerini
+        WHITELIST_FILE dosyasına append eder. Var olanları tekrar eklemez.
+        (RAM'e doğrudan yazma yapılmaz; dosya güncellendikten sonra _load_whitelist() çağrılmalı.)
+        """
+        try:
+            path = Path(WHITELIST_FILE)
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            # mevcut dosya girdilerini topla (duplicate'ı önlemek için)
+            existing = set()
+            if path.exists():
+                with path.open("r", encoding="utf-8") as f:
+                    for ln in f:
+                        s = ln.strip()
+                        if not s or s.startswith("#"):
+                            continue
+                        existing.add(s)
+
+            out = subprocess.check_output(["ip", "-o", "-4", "addr", "show"], text=True)
+            to_add = []
+            for line in out.splitlines():
+                # eth0..eth9 arayüzlerini atla
+                if re.search(skip_iface_regex, line):
+                    continue
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                cidr = parts[3]  # örn "172.28.0.1/24"
+                try:
+                    net = ipaddress.ip_network(cidr, strict=False)
+                except Exception:
+                    continue
+                net_s = str(net)
+                if net_s not in existing:
+                    to_add.append(net_s)
+                    existing.add(net_s)
+
+            # her zaman loopback dosyaya eklensin (gerekirse)
+            if "127.0.0.0/8" not in existing:
+                to_add.insert(0, "127.0.0.0/8")
+                existing.add("127.0.0.0/8")
+
+            if not to_add:
+                logger.debug("Whitelist dosyasına eklenecek yeni internal ağ bulunamadı.")
+                return []
+
+            # append yeni satırları
+            with path.open("a", encoding="utf-8") as f:
+                f.write("\n# auto-added internal networks\n")
+                for n in to_add:
+                    f.write(n + "\n")
+
+            try:
+                path.chmod(0o644)
+            except Exception:
+                pass
+
+            logger.info(f"Whitelist dosyasına eklendi: {to_add}")
+            return to_add
+        except Exception as e:
+            logger.exception("Whitelist dosyasına ekleme hatası: %s", e)
+            return []
+    
+
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super(MitigationManager, cls).__new__(cls, *args, **kwargs)
@@ -50,8 +134,21 @@ class MitigationManager:
         self.locks = {}
         self.conns = {}
         self.recent = {}
-
         self.whitelist = set()
+
+        try:
+            added_file = self._append_internal_ifaces_to_whitelist_file()
+            if added_file:
+                logger.debug(f"Internal ağlar whitelist.txt'ye eklendi: {added_file}")
+        except Exception as e:
+            logger.debug("Internal ağları whitelist.txt'ye ekleme başarısız: %s", e)
+        
+        try:
+            ipset_manager.load_whitelist(WHITELIST_FILE)
+            logger.debug("ipset ddos_whitelist whitelist.txt içeriğiyle güncellendi.")
+        except Exception as e:
+            logger.exception("ipset whitelist yükleme hatası: %s", e)
+
         self._load_whitelist()
 
         self.metrics = {"total": 0, "allowed": 0, "blocked": 0, "blacklisted": 0}

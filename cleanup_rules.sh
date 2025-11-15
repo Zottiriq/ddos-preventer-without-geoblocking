@@ -16,3 +16,4 @@ $IPTABLES_CMD -X DDOS_FILTER &> /dev/null
 
 # ipset listesi temizliği
 $IPSET_CMD destroy ddos_blocklist &> /dev/null
+$IPSET_CMD destroy ddos_whitelist &> /dev/null 

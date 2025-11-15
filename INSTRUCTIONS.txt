@@ -1,0 +1,20 @@
+sudo systemctl start ddos-preventer.service     # Starts the service
+
+sudo systemctl stop ddos-preventer.service      # Stops the service
+
+sudo systemctl restart ddos-preventer.service   # Restarts the service
+
+sudo systemctl daemon-reload                    # Reloads systemd configuration
+
+sudo journalctl -u ddos-preventer -f            # Shows live service logs
+
+# Log file location
+/home/log/dddos-preventer.log
+
+
+# View whitelist entries
+sudo ipset list ddos_whitelist
+
+
+# View blocklist entries
+sudo ipset list ddos_blocklist

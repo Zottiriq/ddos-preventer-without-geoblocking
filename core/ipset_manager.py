@@ -58,3 +58,26 @@ def cleanup():
     logger.info(f"'{set_name}' ipset listesi temizleniyor...")
     _run_shell(["ipset", "destroy", set_name])
     logger.info("ipset listesi temizlendi.")
+
+def load_whitelist(path="/etc/ddos_preventer/whitelist.txt", set_name="ddos_whitelist"):
+    """
+    whitelist.txt içeriğini verilen ipset setine yükler.
+    Eğer set yoksa oluşturur. Aynı girdiler tekrar eklenmez.
+    """
+    try:
+        # set yoksa oluştur
+        _run_shell(["ipset", "create", set_name, "hash:net", "family", "inet", "-exist"], check=False)
+
+        # dosyayı oku
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if not s or s.startswith("#"):
+                    continue
+                _run_shell(["ipset", "add", set_name, s, "-exist"], check=False)
+
+        logger.info(f"Whitelist dosyasındaki ağlar ipset'e yüklendi ({set_name}).")
+        return True
+    except Exception as e:
+        logger.error(f"Whitelist ipset'e yüklenemedi: {e}")
+        return False
