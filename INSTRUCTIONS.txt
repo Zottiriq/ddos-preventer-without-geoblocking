@@ -6,7 +6,7 @@ sudo systemctl restart ddos-preventer.service   # Restarts the service
 
 sudo systemctl daemon-reload                    # Reloads systemd configuration
 
-sudo journalctl -u ddos-preventer -f            # Shows live service logs
+journalctl -u ddos-preventer -o cat -f            # Shows live service logs
 
 # Log file location
 /home/log/dddos-preventer.log
